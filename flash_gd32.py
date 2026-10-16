@@ -7,26 +7,40 @@ import struct
 ACK = 0x79
 NACK = 0x1F
 
-def init_bootloader(ser):
-    """Send sync byte 0x7F to activate bootloader with retries."""
-    time.sleep(0.5)
-    for attempt in range(6):
-        ser.reset_input_buffer()
-        ser.write(bytes([0x7F]))
-        ser.flush()
-        time.sleep(0.1)
-        resp = ser.read(1)
-        if resp and resp[0] == ACK:
-            print("  Bootloader synced (ACK)")
-            return True
-        elif resp:
-            print(f"  Attempt {attempt+1}: unexpected response 0x{resp[0]:02X}")
-        else:
-            print(f"  Attempt {attempt+1}: no response")
-        if attempt < 5:
-            time.sleep(0.35)
-    print("  No response after 6 attempts - check BOOT0 and reset")
-    return False
+def connect_and_sync(port, baud, timeout_seconds=40):
+    """Attempt to connect and sync with bootloader, handling resets or USB replugs."""
+    start_time = time.time()
+    last_msg_time = 0
+    while time.time() - start_time < timeout_seconds:
+        ser = None
+        try:
+            ser = serial.Serial(port, baud, parity=serial.PARITY_EVEN, timeout=0.2)
+            ser.reset_input_buffer()
+            ser.write(bytes([0x7F]))
+            ser.flush()
+            time.sleep(0.05)
+            resp = ser.read(1)
+            if resp and resp[0] == ACK:
+                ser.timeout = 2.0
+                print("  Bootloader synced (ACK)")
+                return ser
+        except Exception:
+            pass
+        if ser:
+            try:
+                ser.close()
+            except Exception:
+                pass
+
+        if time.time() - last_msg_time > 3.0:
+            remaining = int(timeout_seconds - (time.time() - start_time))
+            print(f"  Waiting for device: please press RESET or replug Type-C (BOOT0=1)... ({remaining}s remaining)")
+            last_msg_time = time.time()
+
+        time.sleep(0.3)
+
+    print("  Connection timeout - please check BOOT0 jumper and USB cable")
+    return None
 
 def send_command(ser, cmd):
     """Send a command and its complement, verify ACK."""
@@ -105,19 +119,28 @@ def _send_raw_payload(ser, payload, label="payload"):
 
 def cmd_erase(ser, commands=None):
     """Global erase using the bootloader erase commands."""
-    attempts = []
-    if commands is None or 0x44 in commands:
-        attempts.append((0x44, bytes([0xFF, 0xFF]), "extended erase"))
-    if commands is None or 0x43 in commands:
-        attempts.append((0x43, bytes([0xFF]), "standard erase"))
+    old_timeout = ser.timeout
+    ser.timeout = 15  # Mass erase can take several seconds
 
-    for cmd, payload, label in attempts:
-        if not send_command(ser, cmd):
-            continue
-        if _send_payload_with_checksum(ser, payload):
-            print(f"  Global erase via {label}: OK")
-            return True
-        print(f"  Global erase via {label}: failed")
+    try:
+        # AN3155: Standard erase (0x43) global erase payload is 0xFF followed by checksum 0x00
+        if commands is None or 0x43 in commands:
+            if send_command(ser, 0x43):
+                if _send_raw_payload(ser, bytes([0xFF, 0x00]), "standard global erase (0x43)"):
+                    print("  Global erase via standard erase (0x43): OK")
+                    return True
+                print("  Global erase via standard erase (0x43): failed")
+
+        # AN3155: Extended erase (0x44) global erase payload is 0xFF 0xFF followed by checksum 0x00
+        if commands is None or 0x44 in commands:
+            if send_command(ser, 0x44):
+                if _send_raw_payload(ser, bytes([0xFF, 0xFF, 0x00]), "extended global erase (0x44)"):
+                    print("  Global erase via extended erase (0x44): OK")
+                    return True
+                print("  Global erase via extended erase (0x44): failed")
+    finally:
+        ser.timeout = old_timeout
+
     return False
 
 
@@ -141,6 +164,7 @@ def cmd_write_memory(ser, address, data):
     """Write data to memory."""
     if len(data) % 4:
         data += bytes([0xFF]) * (4 - (len(data) % 4))
+    ser.reset_input_buffer()
     if not send_command(ser, 0x31):
         return False
     # Send address (4 bytes, MSB first) + checksum
@@ -177,12 +201,9 @@ def main():
     firmware = sys.argv[2] if len(sys.argv) > 2 else ".pio/build/gd32e230c8t6/firmware.bin"
     baud = next((int(arg) for arg in sys.argv[3:] if arg.isdigit()), 57600)
 
-    print(f"Opening {port} at {baud} 8E1...")
-    ser = serial.Serial(port, baud, parity=serial.PARITY_EVEN, timeout=1)
-
-    print("Syncing with bootloader...")
-    if not init_bootloader(ser):
-        ser.close()
+    print(f"Connecting to {port} at {baud} 8E1...")
+    ser = connect_and_sync(port, baud, timeout_seconds=45)
+    if not ser:
         sys.exit(1)
 
     print("Getting bootloader info...")
@@ -214,9 +235,7 @@ def main():
             ser.close()
             sys.exit(1)
 
-        # Wait for erase
-        print("  Waiting for erase to complete...")
-        time.sleep(8)
+        time.sleep(0.5)
 
     # Write firmware in 256-byte chunks
     FLASH_BASE = 0x08000000

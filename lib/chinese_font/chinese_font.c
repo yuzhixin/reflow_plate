@@ -2,6 +2,10 @@
 #include "hw_config.h"
 #include <string.h>
 
+extern void st7735_set_addr_window(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1);
+extern void st7735_spi_write(uint8_t data);
+extern void st7735_spi_wait_idle(void);
+
 // Auto-generated 16x16 Chinese font bitmaps (SimHei)
 // Each character: 32 bytes (16 rows, 2 bytes per row, MSB=left)
 static const ChineseChar chinese_font[CHINESE_FONT_COUNT] = {
@@ -61,49 +65,6 @@ static const ChineseChar chinese_font[CHINESE_FONT_COUNT] = {
     {"按", {0x00, 0x00, 0x10, 0x60, 0x10, 0x20, 0x13, 0xFE, 0x7B, 0x02, 0x13, 0x62, 0x10, 0x40, 0x10, 0x40, 0x1F, 0xFE, 0x70, 0x88, 0x51, 0x88, 0x11, 0xD0, 0x10, 0x70, 0x10, 0x7C, 0x37, 0x86, 0x00, 0x00}},
 };
 
-// Helper: SPI write (same as st7735 bit-bang)
-static inline void spi_write(uint8_t data) {
-    for (int i = 7; i >= 0; i--) {
-        gpio_bit_reset(SPI_PORT, SPI_SCK_PIN);
-        if (data & (1 << i)) {
-            gpio_bit_set(TFT_SDA_PORT, TFT_SDA_PIN);
-        } else {
-            gpio_bit_reset(TFT_SDA_PORT, TFT_SDA_PIN);
-        }
-        gpio_bit_set(SPI_PORT, SPI_SCK_PIN);
-    }
-}
-
-static void write_cmd(uint8_t cmd) {
-    gpio_bit_reset(TFT_RS_PORT, TFT_RS_PIN);
-    gpio_bit_reset(TFT_CS_PORT, TFT_CS_PIN);
-    spi_write(cmd);
-    gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
-}
-
-static void write_data(uint8_t data) {
-    gpio_bit_set(TFT_RS_PORT, TFT_RS_PIN);
-    gpio_bit_reset(TFT_CS_PORT, TFT_CS_PIN);
-    spi_write(data);
-    gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
-}
-
-static void set_addr_window(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
-    write_cmd(0x2A);
-    write_data(0x00);
-    write_data(x0 + 1);
-    write_data(0x00);
-    write_data(x1 + 1);
-
-    write_cmd(0x2B);
-    write_data(0x00);
-    write_data(y0 + 26);
-    write_data(0x00);
-    write_data(y1 + 26);
-
-    write_cmd(0x2C);
-}
-
 // ===== 32x32 Large Chinese Font =====
 typedef struct {
     const char *utf8;
@@ -135,7 +96,7 @@ void draw_chinese_char_32(uint8_t x, uint8_t y, const char *utf8_char, uint16_t 
     const ChineseChar32 *cc = find_char_32(utf8_char);
     if (!cc) return;
 
-    set_addr_window(x, y, x + 31, y + 31);
+    st7735_set_addr_window(x, y, x + 31, y + 31);
     gpio_bit_set(TFT_RS_PORT, TFT_RS_PIN);
     gpio_bit_reset(TFT_CS_PORT, TFT_CS_PIN);
 
@@ -156,14 +117,15 @@ void draw_chinese_char_32(uint8_t x, uint8_t y, const char *utf8_char, uint16_t 
             else if (col < 24) bit = (b2 >> (23 - col)) & 1;
             else               bit = (b3 >> (31 - col)) & 1;
             if (bit) {
-                spi_write(hi_col);
-                spi_write(lo_col);
+                st7735_spi_write(hi_col);
+                st7735_spi_write(lo_col);
             } else {
-                spi_write(hi_bg);
-                spi_write(lo_bg);
+                st7735_spi_write(hi_bg);
+                st7735_spi_write(lo_bg);
             }
         }
     }
+    st7735_spi_wait_idle();
     gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
 }
 
@@ -182,7 +144,7 @@ void draw_chinese_char(uint8_t x, uint8_t y, const char *utf8_char, uint16_t col
     const ChineseChar *cc = find_char(utf8_char);
     if (!cc) return;
 
-    set_addr_window(x, y, x + 15, y + 15);
+    st7735_set_addr_window(x, y, x + 15, y + 15);
     gpio_bit_set(TFT_RS_PORT, TFT_RS_PIN);
     gpio_bit_reset(TFT_CS_PORT, TFT_CS_PIN);
 
@@ -197,14 +159,15 @@ void draw_chinese_char(uint8_t x, uint8_t y, const char *utf8_char, uint16_t col
         for (int col = 0; col < 16; col++) {
             int bit = (col < 8) ? (byte1 >> (7 - col)) : (byte2 >> (15 - col));
             if (bit & 1) {
-                spi_write(hi_col);
-                spi_write(lo_col);
+                st7735_spi_write(hi_col);
+                st7735_spi_write(lo_col);
             } else {
-                spi_write(hi_bg);
-                spi_write(lo_bg);
+                st7735_spi_write(hi_bg);
+                st7735_spi_write(lo_bg);
             }
         }
     }
+    st7735_spi_wait_idle();
     gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
 }
 

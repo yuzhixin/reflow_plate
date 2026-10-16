@@ -132,7 +132,15 @@ static void write_data(uint8_t data) {
     gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
 }
 
-static void set_addr_window(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
+void st7735_spi_write(uint8_t data) {
+    spi_write(data);
+}
+
+void st7735_spi_wait_idle(void) {
+    while(SET == spi_i2s_flag_get(SPI0, SPI_FLAG_TRANS));
+}
+
+void st7735_set_addr_window(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
     write_cmd(0x2A); // Column addr set
     write_data(0x00);
     write_data(x0 + 1); // Offset for some screens
@@ -221,7 +229,7 @@ void st7735_fill_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color
     if (x >= TFT_W || y >= TFT_H) return;
     if ((uint16_t)x + w > TFT_W) w = TFT_W - x;
     if ((uint16_t)y + h > TFT_H) h = TFT_H - y;
-    set_addr_window(x, y, x + w - 1, y + h - 1);
+    st7735_set_addr_window(x, y, x + w - 1, y + h - 1);
 
     gpio_bit_set(TFT_RS_PORT, TFT_RS_PIN);
     gpio_bit_reset(TFT_CS_PORT, TFT_CS_PIN);
@@ -234,6 +242,7 @@ void st7735_fill_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color
         spi_write(hi);
         spi_write(lo);
     }
+    st7735_spi_wait_idle();
     gpio_bit_set(TFT_CS_PORT, TFT_CS_PIN);
 }
 

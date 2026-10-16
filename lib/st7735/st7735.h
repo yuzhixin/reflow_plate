@@ -22,6 +22,9 @@ void st7735_draw_rect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint16_t color
 void st7735_draw_string(uint8_t x, uint8_t y, const char *str, uint16_t color, uint16_t bg_color, uint8_t size);
 void st7735_draw_string_padded(uint8_t x, uint8_t y, const char *str, uint8_t width_chars, uint16_t color, uint16_t bg_color, uint8_t size);
 void st7735_invalidate_ui_cache(void);
+void st7735_set_addr_window(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1);
+void st7735_spi_write(uint8_t data);
+void st7735_spi_wait_idle(void);
 
 // Menu system
 void ui_draw_main_menu(uint8_t cursor, float current_temp, bool sensor_valid, bool force_redraw);
